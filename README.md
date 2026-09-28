@@ -1,6 +1,6 @@
 # Business Failure Prediction Model
 
-> Note on results: the metrics currently reported below come from a synthetic dataset generated with deliberately clean class separation, so they are not realistic. Results on the real Kaggle Financial Distress dataset will be shown separately when available.
+> Note on results: the synthetic dataset is generated with deliberately clean class separation, so its metrics are not realistic. Results on the real Kaggle Financial Distress dataset are shown separately in the performance table, with their own caveats.
 
 **Author:** Michael Dang · Master of Business Analytics, University of Auckland
 **Stack:** Python · Pandas · Scikit-learn · Matplotlib
@@ -22,11 +22,11 @@ The model supports two data sources through a single loader (`load_data.py`).
 
 ### 1. Kaggle Financial Distress dataset (preferred)
 - Source: https://www.kaggle.com/datasets/shebrahimi/financial-distress
-- Format: panel data (multiple time periods per company)
+- Format: panel data (multiple time periods per company); 3,672 company-years after loading, of which 136 are labelled failed and 3,536 healthy
 - Target: binary `failed`, defined as `Financial Distress < -0.50`
 - Features: the anonymised `x1` to `x7` columns, mapped to Altman-style ratios as documented in `load_data.py`. The mapping is an approximation because the dataset does not publish a feature dictionary.
 
-To use it, download the dataset from Kaggle and place `Financial Distress.csv` in `data/`. The loader detects it automatically.
+To use it, download the dataset from Kaggle and place `Financial Distress.csv` in `data/`. The loader detects it automatically. The file is not included in this repository.
 
 ### 2. Synthetic dataset (fallback)
 - Generator: `generate_data.py`, using distributional parameters derived from Altman (1968) and Ohlson (1980)
@@ -90,9 +90,17 @@ business_failure_prediction/
 | Data source | ROC-AUC | CV ROC-AUC (5-fold) | Brier score | False positive rate | False negative rate | Run date |
 |---|---|---|---|---|---|---|
 | Synthetic (not realistic) | 0.999 | 0.999 ± 0.001 | 0.009 | 1.1% | 2.7% | 2026-09-28 |
-| Kaggle Financial Distress | TBD | TBD | TBD | TBD | TBD | TBD |
+| Kaggle Financial Distress | 0.938 | 0.935 ± 0.018 | 0.116 | 16.9% | 8.8% | 2026-09-28 |
 
-The synthetic figures are not realistic. The generator creates a clean separation between healthy and failed companies by design, so the model separates them almost perfectly. The synthetic data is kept so the pipeline can run without the Kaggle file, not as evidence of model performance. The Kaggle row will be filled in once the model has been run on that dataset.
+The synthetic figures are not realistic. The generator creates a clean separation between healthy and failed companies by design, so the model separates them almost perfectly. The synthetic data is kept so the pipeline can run without the Kaggle file, not as evidence of model performance.
+
+Kaggle run details (test set of 918 company-years): average precision 0.459; 31 of 34 failed cases detected (recall 91.2%); 149 healthy cases flagged (precision 17.2%).
+
+Caveats on the Kaggle results:
+- The train/test split is random across company-years, not grouped by company. The same company can appear in both the training and test sets, so the test metrics are likely to be optimistic.
+- Failed cases are 3.7% of the data. With balanced class weights and a 0.5 threshold the model flags many healthy cases, so fewer than one in five flags is a failed case.
+- The mapping of the anonymised `x1` to `x7` columns to Altman-style ratios is an approximation (see Data above).
+- The console output labels Kaggle rows as "companies"; they are company-years.
 
 ---
 
@@ -107,7 +115,7 @@ The model outputs a failure probability between 0% and 100%.
 | 50 to 70% | High risk | Escalate to senior review |
 | 70 to 100% | Very high risk | Decline or require strong collateral |
 
-False positives are healthy companies flagged for review: wasted analyst time, the cost of a conservative screen. False negatives are failed companies the model misses: credit extended to businesses that subsequently fail. On the synthetic data these rates are 1.1% and 2.7%; they are expected to be substantially higher on real data.
+False positives are healthy companies flagged for review: wasted analyst time, the cost of a conservative screen. False negatives are failed companies the model misses: credit extended to businesses that subsequently fail. On the synthetic data these rates are 1.1% and 2.7%; on the Kaggle data they are 16.9% and 8.8%.
 
 The trade-off between the two error rates can be adjusted by changing the decision threshold in `model.py`. A lower threshold catches more failing companies but flags more healthy ones. A higher threshold reduces analyst workload but increases credit risk.
 
@@ -115,27 +123,31 @@ The trade-off between the two error rates can be adjusted by changing the decisi
 
 ## Coefficients
 
-On the synthetic dataset (run 2026-09-28), the standardised coefficients are:
+Standardised coefficients from the runs on 2026-09-28:
 
-| Feature | Coefficient |
-|---|---|
-| Current Assets / Current Liabilities | -1.928 |
-| Retained Earnings / Total Assets | -1.890 |
-| Total Debt / Total Equity | +1.881 |
-| EBIT / Total Assets | -1.475 |
-| Working Capital / Total Assets | -1.366 |
-| Net Income / Total Assets | -1.233 |
-| Revenue / Total Assets | -1.069 |
+| Feature | Synthetic | Kaggle |
+|---|---|---|
+| Working Capital / Total Assets | -1.366 | -2.001 |
+| Retained Earnings / Total Assets | -1.890 | -1.585 |
+| EBIT / Total Assets | -1.475 | +1.859 |
+| Net Income / Total Assets | -1.233 | +1.047 |
+| Total Debt / Total Equity | +1.881 | +0.752 |
+| Current Assets / Current Liabilities | -1.928 | -0.364 |
+| Revenue / Total Assets | -1.069 | -0.217 |
 
-Positive coefficients increase failure probability; negative coefficients reduce it. Liquidity (current ratio), accumulated earnings (retained earnings) and leverage (debt/equity) have the largest effects, with similar magnitudes.
+Positive coefficients increase failure probability; negative coefficients reduce it.
 
-Because the data is synthetic, these coefficients reflect the assumptions built into `generate_data.py` rather than an empirical finding about real companies. Whether earnings capacity or leverage is the stronger predictor in practice will be tested on the Kaggle dataset.
+On the synthetic data, liquidity (current ratio), accumulated earnings (retained earnings) and leverage (debt/equity) have the largest effects. These reflect the assumptions built into `generate_data.py` rather than an empirical finding about real companies.
+
+On the Kaggle data, working capital and retained earnings have the largest negative coefficients, and debt/equity increases failure probability as expected. EBIT and net income have positive coefficients, which is the opposite of the expected sign. Possible reasons include correlation between the earnings features and the approximate mapping of the anonymised columns; the analysis does not establish which. The coefficients therefore do not support a firm conclusion about earnings capacity versus leverage.
+
+The worked example at the end of `model.py` uses hand-set ratio values on the synthetic scale. On the Kaggle data all three example applicants score below 2% and pass, including the "high risk" example, so that example is only meaningful for the synthetic dataset.
 
 ---
 
 ## Data Note
 
-The currently reported results use a synthetic dataset, generated using distributional parameters derived from Altman (1968) and Ohlson (1980) to approximate failed and healthy company financial profiles. For production use, replace it with a labelled dataset of actual company financials (for example Compustat, or the Kaggle Financial Distress dataset supported by `load_data.py`).
+The synthetic dataset is generated using distributional parameters derived from Altman (1968) and Ohlson (1980) to approximate failed and healthy company financial profiles. The Kaggle dataset is real panel data, but its features are anonymised and the Altman-style mapping is approximate. For production use, train on a labelled dataset of actual company financials with documented variables (for example Compustat), and split by company rather than by company-year.
 
 ---
 
