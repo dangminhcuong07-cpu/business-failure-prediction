@@ -1,0 +1,10 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Local working drafts (not part of the project)
+EXECUTIVE_MEMO.md
+
+# Kaggle dataset (download separately; not redistributed here)
+data/Financial Distress.csv
+data/archive.zip
